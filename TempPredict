@@ -1,0 +1,227 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Jun 24 00:05:20 2021
+
+@author: 13882
+"""
+
+import datetime
+import pandas as pd
+import numpy as np
+from pprint import pprint
+import matplotlib.pyplot as plt
+import seaborn
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.model_selection import RandomizedSearchCV
+from sklearn.model_selection import GridSearchCV
+
+def get_dates(data):
+    years = data['年']
+    months = data['月']
+    days = data['日']
+    data_r = []
+    for year, month, day in zip(years, months, days):
+        data_r.append(datetime.datetime(int(year), int(month), int(day))) 
+    return data_r
+
+def season(months):
+    seasons = []
+    for month in months:
+        if month in [1, 2, 12]:
+            seasons.append('winter')
+        elif month in [3, 4, 5]:
+            seasons.append('spring')
+        elif month in [6, 7, 8]:
+            seasons.append('summer')
+        elif month in [9, 10, 11]:
+            seasons.append('autumn')
+    return seasons
+        
+    
+#读取数据
+data1 = pd.read_csv('data_temps1.csv', encoding='utf-8')
+data2 = pd.read_csv('data_temps2.csv', encoding='utf-8')
+
+#数据可视化
+d1_dates = get_dates(data1)
+d2_dates = get_dates(data2)
+
+"""
+fig, ((ax1, ax2, ax3, ax4),(ax5, ax6, ax7, ax8)) = plt.subplots(2, 4, figsize=(18, 6), dpi =100)
+plt.rcParams['font.sans-serif']=['simhei']
+
+ax1.set_xlabel('日期')
+ax1.set_ylabel('温度(°F)')
+ax1.set_title('前两天最高温度')
+ax1.plot(d2_dates, data2['前两天最高温度'])
+
+ax2.set_xlabel('日期')
+ax2.set_ylabel('温度(°F)')
+ax2.set_title('前一天最高温度')
+ax2.plot(d2_dates, data2['前一天最高温度'])
+
+ax3.set_xlabel('日期')
+ax3.set_ylabel('温度(°F)')
+ax3.set_title('当天最高温度')
+ax3.plot(d2_dates, data2['当天最高温度'])
+
+ax4.set_xlabel('日期')
+ax4.set_ylabel('温度(°F)')
+ax4.set_title( '当地气象台预测值')
+ax4.plot(d2_dates, data2[ '当地气象台预测值'])
+
+ax5.set_xlabel('日期')
+ax5.set_ylabel('风速(mph)')
+ax5.set_title( '前一天风速')
+ax5.plot(d2_dates, data2['前一天风速'],'r-')
+
+ax6.set_xlabel('日期')
+ax6.set_ylabel('降水(in)')
+ax6.set_title( '前一天降水')
+ax6.plot(d2_dates, data2['前一天降水'],'r-')
+
+ax7.set_xlabel('日期')
+ax7.set_ylabel('积雪深度(in)')
+ax7.set_title('前一天积雪深度')
+ax7.plot(d2_dates, data2['前一天积雪深度'],'ro')
+
+ax8.set_xlabel('日期')
+ax8.set_ylabel('温度(°F)')
+ax8.set_title('每年该日最高温度均值')
+ax8.plot(d2_dates, data2[ '每年该日最高温度均值'])
+
+plt.tight_layout()
+"""
+
+
+#创建季节变量
+seasons = season(data2['月'])
+reduced_features = data2[['前一天风速', '前一天最高温度', '每年该日最高温度均值', '当天最高温度']]
+newc = reduced_features.columns.insert(len(reduced_features), '季节')
+newd = reduced_features.reindex(columns = newc, fill_value = seasons)
+reduced_features = newd
+
+'''
+#绘制关系图
+palette = seaborn.xkcd_palette(['blue', 'green', 'red', 'goldenrod'])
+seaborn.pairplot(reduced_features, hue = '季节', diag_kind='kde', palette=palette)
+'''
+#独热编码 one hot encode
+d1_hot = pd.get_dummies(data1)
+d1_target = d1_hot['当天最高温度']
+d1_feature = d1_hot.drop('当天最高温度', axis = 1)
+tr_f1, te_f1, tr_t1, te_t1 = train_test_split(d1_feature, d1_target, test_size=0.25, random_state=10)
+
+d2_hot = pd.get_dummies(data2)
+d2_target = d2_hot['当天最高温度']
+d2_feature = d2_hot.drop('当天最高温度', axis = 1)
+ls_feature = list(d2_feature.columns)
+tr_f2, te_f2, tr_t2, te_t2 = train_test_split(d2_feature, d2_target, test_size=0.25, random_state=10)
+
+data3 = data2[data1.columns]
+d3_hot = pd.get_dummies(data3)
+d3_target = d3_hot['当天最高温度']
+d3_feature = d3_hot.drop('当天最高温度', axis = 1)
+
+te_f1 = te_f2[list(d1_feature.columns)]
+te_t1 = te_t2
+tr_f3 = tr_f2[list(d1_feature.columns)]
+tr_t3 = tr_t2
+te_f3 = te_f2[list(d1_feature.columns)]
+te_t3 = te_t2
+
+
+model_rf = RandomForestRegressor(n_estimators=100, random_state=0)
+#使用数据集1训练模型
+m1 = model_rf.fit(tr_f1, tr_t1)
+m1_prediction = m1.predict(te_f1)
+m1_error = abs(m1_prediction - te_t1)
+m1_mape = 100 * np.mean(m1_error / te_t1)
+m1_accuracy = 100 - m1_mape
+print('数据集1结果如下：')
+print('\t平均绝对误差：{:.2f} degrees'.format(np.mean(m1_error)))
+print('\t平均绝对百分误差（MAPE）：{:.2f}'.format(m1_mape))
+print('\t准确度：{:.2f}%'.format(m1_accuracy))
+
+#使用数据集2训练模型
+m2 = model_rf.fit(tr_f2, tr_t2)
+m2_prediction = m2.predict(te_f2)
+m2_error = abs(m2_prediction - te_t2)
+m2_mape = 100 * np.mean(m2_error / te_t2)
+m2_accuracy = 100 - m2_mape
+print('\n数据集2结果如下：')
+print('\t平均绝对误差：{:.2f} degrees'.format(np.mean(m2_error)))
+print('\t平均绝对百分误差（MAPE）：{:.2f}'.format(m2_mape))
+print('\t准确度：{:.2f}%'.format(m2_accuracy))
+
+#使用数据集3训练模型
+m3 = model_rf.fit(tr_f3, tr_t3)
+m3_prediction = m3.predict(te_f3)
+m3_error = abs(m3_prediction - te_t3)
+m3_mape = 100 * np.mean(m3_error / te_t3)
+m3_accuracy = 100 - m3_mape
+print('\n数据集2结果如下：')
+print('\t平均绝对误差：{:.2f} degrees'.format(np.mean(m3_error)))
+print('\t平均绝对百分误差（MAPE）：{:.2f}'.format(m3_mape))
+print('\t准确度：{:.2f}%'.format(m3_accuracy))
+
+
+#对比表格
+print('\n')
+m_compair = pd.DataFrame({'实验编号':['01','02','03'],
+                          '样本量':[d1_feature.shape[0], d2_feature.shape[0], d3_feature.shape[0]],
+                          '特征量':[d1_feature.shape[1], d2_feature.shape[1], d3_feature.shape[1]],
+                          '平均绝对误差':[round(np.mean(m1_error),2), round(np.mean(m2_error),2),round(np.mean(m3_error),2)],
+                          'MAPE':[m1_mape, m2_mape, m3_mape],
+                          '准确度':[m1_accuracy, m2_accuracy, m3_accuracy]})
+pd.set_option('display.unicode.ambiguous_as_wide', True)
+pd.set_option('display.unicode.east_asian_width', True)
+pd.set_option('display.width', 10) 
+print(m_compair)
+
+#调整模型参数
+n_estimators = []
+for x in np.linspace(start = 100, stop = 2000, num = 10):
+    n_estimators.append(int(x))    
+
+max_depth = [10, 20]
+max_depth.append(None)
+max_features = ['auto', 'sqrt']
+min_samples_leaf = [1, 2, 4]
+min_samples_split = [2, 5, 10]
+bootstrap = [True, False]
+
+random_grid = {'n_estimators':n_estimators,
+               'max_depth': max_depth,
+               'max_features': max_features,
+               'min_samples_leaf': min_samples_leaf,
+               'min_samples_split':min_samples_split,
+               'bootstrap': bootstrap}
+
+#随机选择参数进行组合
+rf = RandomForestRegressor()
+rf_random = RandomizedSearchCV(estimator = rf, param_distributions = random_grid,
+                               n_iter=100, scoring='neg_mean_absolute_error',
+                               cv = 3, random_state=0)
+rf_random.fit(tr_f2, tr_t2)
+b = rf_random.best_params_
+print(b)
+
+def evaluate(m, te_f, te_t):
+    pred = m.predict(te_f)
+    error = abs(pred - te_t)
+    mape = 100 * np.mean(error / te_t)
+    accur = 100- mape
+    print('平均绝对误差：{:.2f} degrees'.format(np.mean(error)))
+    print('准确度：{:.2f}%'.format(accur))
+
+best_random = rf_random.best_estimator_
+evaluate(best_random, te_f2, te_t2)
+
+
+
+
+
+
+
